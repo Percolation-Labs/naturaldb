@@ -1,0 +1,17 @@
+[project]
+name = "naturaldb"
+version = "0.1.0"
+description = "A minimal database implementing the Percolate memory interface. natural language is used to interrogate multiple index representations of each entity"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "docstring-parser>=0.16",
+    "duckdb>=1.2.2",
+    "hnswlib>=0.8.0",
+    "numpy>=2.2.4",
+    "polars>=1.27.1",
+    "pydantic>=2.11.3",
+    "requests>=2.32.3",
+    "rocksdict>=0.3.25",
+    "scikit-learn>=1.6.1",
+]
