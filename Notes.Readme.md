@@ -90,7 +90,7 @@ We could probably expose and ODBC or some sort of interface like that so folks c
 11. index images
 12. daily snapshots 
 13. scheduler is an important task for ingesting data or doing things for the user
-
+14. Encryption, access policies, access logs and noise and transfer filters based on RBAC
 
 # Examples
 
@@ -103,7 +103,7 @@ We could probably expose and ODBC or some sort of interface like that so folks c
 # Is it a feature?
 01. You can insert whatever you want and indexing and schema migration happens in the background| you dont need to register any types - risk of bad states
 02. At least once you have to post the object with the entire schema - this is like having the pydantic object with all the metadata as opposed to just the dict of model dump. its fine to just write the dicts but we cannot build indexes without the metadata so they need to be added at least once
-
+03. the good thing about key-value stores like rocks is the underlying interface is trivally simply. This means we can build a database layer that sits on top of any key-value store. The integration would be provider based based on similar provider implementation. This database is "natural" i.e. built for a humans personal use, natural interfaces such as chat and voice but powerful multi-modal memory representations
 
 
 # Background Indexing Options
@@ -156,6 +156,7 @@ Sunday April 21: Test that the hybrid queries work for semantic or predicate ind
 - agents/entities and functions are added for agentic orchestration purposes
 - planner can suggest plan
 - session works - plan executes, runs functions and saves sessions and AIResponses
+- package up installer and include in percolate for embedded tests
 
 Sunday April 28: Test integration with percolate
 

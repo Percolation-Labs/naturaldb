@@ -210,7 +210,7 @@ class GraphLogic:
         return neighborhood
 
 class RocksRepo:
-    def __init__(self, model_cls: Type[T], db_path: str = DB_PATH, client_mode: bool = True, use_background_thread: bool = False):
+    def __init__(self, model_cls: Type[T], db_path: str = DB_PATH, client_mode: bool = True, use_background_thread: bool = True):
         """
         Initialize repository for a specific model class
         
