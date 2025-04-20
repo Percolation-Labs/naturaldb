@@ -5,7 +5,6 @@ from percolate.models import Agent
 from percolate.utils import make_uuid
 import random
 
-repo = RocksRepo(db_path="./test",model_cls=Agent)
 
 def get_meaningful_sentences():
     return [
@@ -59,48 +58,17 @@ def create_sample_agents():
     return agents
 
 def main():
+    repo = RocksRepo(db_path="./test",model_cls=Agent)
+
     agents = create_sample_agents()
  
-    # e = repo._search_semantic_index_single("Something about ireland")
-    # print(e) 
-    # e = repo.get_entities('Agent-1')
-    # print(e)
-    
-    # Adding records in batches to demonstrate the current implementation
-    # Note: Currently the background indexer doesn't fully support requeuing items
-    # during the lifetime of the indexer - when repo.add_records() is called, the indexer
-    # adds to its internal queue (self.records list) but sets a self.futures flag that prevents
-    # new runs until completion. To support continuous queueing:
-    # 1. Modify run() and run_partial() to work with concurrent additions to self.records list
-    # 2. Add a flag to track if the background worker is already processing (not just queued)
-    # 3. Clear self.futures only when truly empty, not at the end of each batch
-    # 4. Implement a proper producer/consumer pattern with thread-safe queues
-    # 5. Consider adding a background thread that periodically processes any new records
+    # Client mode (default): adds to in-memory queue and persistent DB queue
+    # also processes immediately -> showing how this would fail because we are adding twice in a client mode but the index on the background thread cannot deal with that 
+    # below there are examples of how client server works so we can safely add items to a task queue and expect the indexes to be built quickly in the background
     repo.add_records(agents[:10])
     repo.add_records(agents[10:])
     
     repo.index.wait_for_completion()
- 
-    # Test the hybrid semantic search
-    # print("\nTesting hybrid_semantic_search:")
-    # results = repo.hybrid_semantic_search("Help with troubleshooting and tech support", top_k=3)
-    # print(f"Found {len(results)} results")
-    # for result in results:
-    #     print(f"ID: {result['id']}, Similarity: {result['_similarity']:.4f}")
-    #     print(f"Description: {result['description']}")
-    #     print()
-    
-    # Test the keys-only version
-    # print("\nTesting hybrid_semantic_search_keys_only:")
-    # key_results = repo.hybrid_semantic_search_keys_only("Help with troubleshooting and tech support", top_k=3)
-    # print(f"Found {len(key_results)} key results")
-    # for obj_id, score in key_results:
-    #     print(f"ID: {obj_id}, Similarity: {score:.4f}")
-    
-    # Also test the partial vector indexing
-    # print("\nTesting partial vector indexing:")
-    # partial_vectors = repo.index.get_partial_vectors(namespace="p8", entity="Agent")
-    # print(f"Found {len(partial_vectors)} partial vectors")
     
     # Test predicate search with the wildcard approach
     print("\nTesting predicate search with wildcards:")
@@ -113,15 +81,151 @@ def main():
     else:
         print(f"Predicate search error: {pred_results}")
     
-    #check all keys in db
-    #keys = list(repo.iter_keys())
-    # for k in keys:
-    #     print(k)
-    
-    #check seek only provides the match from prefix
-    #print(list([ k for k,v in repo.seek('vindex:p8:Agent')]))
-    
     print(repo.db.get(b'table_stats:p8:Agent'))
-
+    
+def demo_server_mode():
+    """
+    Demonstrates how to use the server mode for background processing.
+    
+    In a real application, this would typically be run in a separate process
+    or thread that continuously monitors the queue and processes items.
+    """
+    from percolate.models import Agent
+    
+    # Create a repo in server mode
+    server_repo = RocksRepo(model_cls=Agent, db_path="./test", client_mode=False)
+    
+    print("Starting server mode indexer...")
+    
+    # Process the queue continuously
+    # This will run indefinitely until interrupted
+    try:
+        # You can adjust the interval (in seconds) between processing attempts
+        server_repo.index.process_queue_continuously(interval=5)
+    except KeyboardInterrupt:
+        print("Server mode processing stopped")
+        
+def test_dual_mode():
+    """
+    Test both client and server modes working together.
+    
+    This simulates:
+    1. Client adding records to the queue
+    2. Server processing those records in the background
+    """
+    import threading
+    import time
+    from percolate.models import Agent
+    
+    # Create a client repo
+    client_repo = RocksRepo(model_cls=Agent, db_path="./test", client_mode=True)
+    
+    # Create a server repo (same db_path, different mode)
+    server_repo = RocksRepo(model_cls=Agent, db_path="./test", client_mode=False)
+    
+    # Start the server in a background thread
+    def server_thread():
+        print("Server thread started")
+        # Process once every 2 seconds
+        try:
+            for _ in range(10):  # Process for 10 iterations then exit
+                server_repo.index.run_partial()
+                time.sleep(2)
+        except Exception as e:
+            print(f"Server thread error: {e}")
+        print("Server thread finished")
+    
+    server = threading.Thread(target=server_thread)
+    server.daemon = True
+    server.start()
+    
+    # Client adds records in batches with delays
+    agents = create_sample_agents()
+    
+    print("Client adding first batch of records...")
+    client_repo.add_records(agents[:5])
+    time.sleep(3)  # Give server time to process
+    
+    print("Client adding second batch of records...")
+    client_repo.add_records(agents[5:10])
+    time.sleep(3)
+    
+    print("Client adding third batch of records...")
+    client_repo.add_records(agents[10:])
+    
+    # Wait for server to finish
+    server.join()
+    
+    print("All processing completed")
+    
+    # Verify results
+    pred_results = client_repo._search_predicate_index_single("Find agents for customer support", sample_size=3)
+    if not isinstance(pred_results, str):
+        print(f"Found {len(pred_results)} results from predicate search")
+    
+def test_background_thread_mode():
+    """
+    Test the new background thread mode for indexing.
+    
+    This mode uses a single RocksRepo instance with a background thread
+    for processing the queue, allowing shared access to the database.
+    """
+    import time
+    from percolate.models import Agent
+    
+    # Create a repo with background thread enabled and custom intervals
+    repo = RocksRepo(
+        model_cls=Agent, 
+        db_path="./test", 
+        use_background_thread=True
+    )
+    
+    # Give the background thread a moment to start
+    time.sleep(5)
+    
+    print("Main thread: Creating sample agents...")
+    agents = create_sample_agents()
+    
+    print("Main thread: Adding first batch of records...")
+    repo.add_records(agents[:10])
+    
+    # Wait a bit to let the background thread process
+    time.sleep(3)
+    
+    print("Main thread: Adding second batch of records...")
+    repo.add_records(agents[10:])
+    
+    # Wait for processing to complete
+    time.sleep(15)  # Wait longer to ensure full indexing cycle runs
+    
+    # Test searching
+    print("\nTesting predicate search:")
+    pred_results = repo._search_predicate_index_single("Find agents for customer support", sample_size=3)
+    if not isinstance(pred_results, str):
+        print(f"Found {len(pred_results)} results from predicate search")
+        if len(pred_results) > 0:
+            for i, row in enumerate(pred_results.iter_rows(named=True)):
+                print(f"Result {i+1}: {row['name']} - {row['category']}")
+    else:
+        print(f"Predicate search error: {pred_results}")
+    
+    print('Waiting for final background processing to complete...')
+    time.sleep(30)  # Reduced waiting time
+    
+    # Clean up by stopping the background thread
+    print("Stopping background indexer thread...")
+    repo.index._stop_background_thread()
+    
 if __name__ == "__main__":
-    main()
+    # Regular client mode demo
+    # main()
+    
+    # Uncomment to test server mode
+    # Note: This will run indefinitely until interrupted
+    # demo_server_mode()
+    
+    # Uncomment to test both modes working together
+    # test_dual_mode()
+    
+    # Test the new background thread mode
+    test_background_thread_mode()

@@ -210,15 +210,32 @@ class GraphLogic:
         return neighborhood
 
 class RocksRepo:
-    def __init__(self, model_cls: Type[T], db_path: str = DB_PATH):
-        """Initialize repository for a specific model class"""
+    def __init__(self, model_cls: Type[T], db_path: str = DB_PATH, client_mode: bool = True, use_background_thread: bool = False):
+        """
+        Initialize repository for a specific model class
+        
+        Args:
+            model_cls: Pydantic model class to use for this repository
+            db_path: Path to the database directory
+            client_mode: If True, operate in client mode (default). If False, operate in server mode
+                for background processing of the queue.
+            use_background_thread: If True, use a background thread for indexing instead of a separate process.
+                This allows sharing the same RocksDB instance between the main thread and indexer thread.
+        """
         self._path = db_path
         self.model_cls = model_cls
         Path(f"{self._path}/data").parent.mkdir(parents=True, exist_ok=True)
+        
+        """the database must be a singleton even as the repo is split over models - because of the lock mechanism"""
         self.db = Rdict(f"{self._path}/data")
         self.model_logic = ModelLogic(model_cls)
         self.graph = GraphLogic(self)
-        self.index = Indexer(self)
+        
+        # If use_background_thread is True, we always use client_mode=True since the background thread
+        # will handle the server-like functionality
+        actual_client_mode = True if use_background_thread else client_mode
+        
+        self.index = Indexer(self, client_mode=actual_client_mode, use_background_thread=use_background_thread)
 
         ###                 ##
         #   ROCKS INTERFACE  #
@@ -284,7 +301,7 @@ class RocksRepo:
         #   REPO INTERFACE   #
         ###                 ##
             
-    def add_records(self, objects: List[BaseModel], run_index:bool=True):
+    def add_records(self, objects: List[BaseModel], run_index:bool=False):
         """add many nodes with embeddings - True run index for testing only"""
         if not isinstance(objects,list):
             objects = [objects]

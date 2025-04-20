@@ -1,13 +1,22 @@
-# Percolate-fabric is a light weight personal AI ready database that runs anywhere
+# Percolate-fabric: A lightweight personal AI-ready database that runs anywhere
 
 A database needs to run anywhere and we are building for a world where users own their data. Internet scale is not important but efficiency and portability are. For example [this](https://github.com/marykdb/rocksdb-multiplatform) is a KMP Rocks project.
-From working with generative AI, the need for a variety of indexes has become important. We need all of 
+From working with generative AI, the need for a variety of indexes has become important. We need all of:
 - key-value lookup
 - graph path finding
 - semantic search
 - SQL predicate search
 
 The Percolate-fabric database aims to push down a composite index to the lowest level to return documents that match keys by a number of criteria.
+
+## Features
+
+- Automatic background indexing
+- Multi-modal search (semantic, predicate, graph)
+- Pydantic integration for schema validation
+- RocksDB for efficient key-value storage
+- HNSW for vector similarity search
+- DuckDB for SQL predicate querying
 
 There are two types of queries; ones that evaluate to row level entities in which case a weight key matrix is used to retrieve documents based on a multiple conditions.
 Secondly we have aggregate queries. We take an OLAP approach to this which reduces these to the first type.
@@ -80,6 +89,7 @@ We could probably expose and ODBC or some sort of interface like that so folks c
 10. Easy package and install anywhere
 11. index images
 12. daily snapshots 
+13. scheduler is an important task for ingesting data or doing things for the user
 
 
 # Examples
@@ -92,4 +102,76 @@ We could probably expose and ODBC or some sort of interface like that so folks c
 
 # Is it a feature?
 01. You can insert whatever you want and indexing and schema migration happens in the background| you dont need to register any types - risk of bad states
-02.  
+02. At least once you have to post the object with the entire schema - this is like having the pydantic object with all the metadata as opposed to just the dict of model dump. its fine to just write the dicts but we cannot build indexes without the metadata so they need to be added at least once
+
+
+
+# Background Indexing Options
+
+Percolate-fabric provides two approaches for background indexing:
+
+## 1. Separate Process Mode (Original Approach)
+
+This approach uses a separate process for the indexer:
+
+```python
+# Client process
+client_repo = RocksRepo(model_cls=Agent, db_path="./data", client_mode=True)
+client_repo.add_records(objects)
+
+# Server process (in a different Python process)
+server_repo = RocksRepo(model_cls=Agent, db_path="./data", client_mode=False)
+server_repo.index.process_queue_continuously()
+```
+
+**Pros**: Clear separation of concerns  
+**Cons**: Cannot share RocksDB instances between processes
+
+## 2. Background Thread Mode (New Approach)
+
+This approach uses a background thread within the same process:
+
+```python
+# Single process with background thread
+repo = RocksRepo(model_cls=Agent, db_path="./data", use_background_thread=True)
+
+# Add records - they will be automatically processed by the background thread
+repo.add_records(objects)
+
+# Later, when shutting down
+repo.index._stop_background_thread()
+```
+
+**Pros**: 
+- Shares the same RocksDB instance
+- No need for separate processes
+- Simpler implementation for most use cases
+
+**Cons**:
+- Thread safety concerns if directly accessing the database while indexing
+
+# Goals
+
+Sunday April 21: Test that the hybrid queries work for semantic or predicate index. Test get entities work.
+- agents/entities and functions are added for agentic orchestration purposes
+- planner can suggest plan
+- session works - plan executes, runs functions and saves sessions and AIResponses
+
+Sunday April 28: Test integration with percolate
+
+- files and images can be added
+
+
+Sunday May 5:
+- email integration and docs integration works
+- I can search the web and create tasks for research
+
+
+--------------------
+
+define interface and add tests before building the C++ version
+
+--------------------
+
+
+Build C++ version and package for desktop / consider mobile versions + DB should run and need vector indexing
